@@ -93,6 +93,10 @@ pub enum SelectToolMessage {
 	DragStop {
 		remove_from_selection: Key,
 	},
+	DoubleClick {
+		extend_selection: Key,
+		remove_from_selection: Key,
+	},
 	EditLayer,
 	EditLayerExec,
 	Enter,
@@ -334,6 +338,7 @@ impl<'a> MessageHandler<ToolMessage, &mut ToolActionMessageContext<'a>> for Sele
 		let mut common = actions!(SelectToolMessageDiscriminant;
 			PointerMove,
 			Abort,
+			DoubleClick,
 			EditLayer,
 			EditLayerExec,
 			Enter,
@@ -471,6 +476,14 @@ impl SelectToolData {
 		document.intersect_polygon_no_artboards(polygon, input).collect()
 	}
 
+	pub fn intersect_lasso_artboards_only(&self, document: &DocumentMessageHandler, input: &InputPreprocessorMessageHandler) -> Vec<LayerNodeIdentifier> {
+		if self.lasso_polygon.len() < 2 {
+			return Vec::new();
+		}
+		let polygon = Subpath::from_anchors_linear(self.lasso_polygon.clone(), true);
+		document.intersect_polygon_artboards_only(polygon, input).collect()
+	}
+
 	pub fn is_layer_inside_lasso_polygon(&self, layer: &LayerNodeIdentifier, document: &DocumentMessageHandler, input: &InputPreprocessorMessageHandler) -> bool {
 		if self.lasso_polygon.len() < 2 {
 			return false;
@@ -585,6 +598,90 @@ impl SelectToolData {
 		self.pivot_gizmo.clone()
 	}
 
+	fn resize_artboards(
+		&mut self, 
+		document: &DocumentMessageHandler, 
+		responses: &mut VecDeque<Message>, 
+		input: &InputPreprocessorMessageHandler,
+		artboards: &[LayerNodeIdentifier],
+		from_center: bool,
+		constrain_square: bool,
+	) {
+		// For multiple artboards, we need to apply the edge-specific resize logic to each artboard individually
+		// This ensures that only the dragged edges affect the corresponding dimensions
+		
+		let Some(bounds) = &self.bounding_box_manager else {
+			return;
+		};
+		let Some(movement) = &bounds.selected_edges else {
+			return;
+		};
+
+		// Get the mouse movement in document space
+		let mouse_document = bounds.transform.inverse().transform_point2(input.mouse.position);
+		
+		for &artboard in artboards {
+			if artboard == LayerNodeIdentifier::ROOT_PARENT {
+				log::error!("Selected artboard cannot be ROOT_PARENT");
+				continue;
+			}
+
+			let Some(artboard_bounds) = document.metadata().bounding_box_document(artboard) else {
+				continue;
+			};
+
+			// Apply the same edge-specific logic as the original artboard tool
+			let mut min = artboard_bounds[0];
+			let mut max = artboard_bounds[1];
+
+			// Only modify the coordinates for the edges that are being dragged
+			if movement.top {
+				min.y = mouse_document.y;
+			} else if movement.bottom {
+				max.y = mouse_document.y;
+			}
+			if movement.left {
+				min.x = mouse_document.x;
+			} else if movement.right {
+				max.x = mouse_document.x;
+			}
+
+			// Handle Alt-key (from_center) scaling around the center
+			if from_center {
+				let center = (artboard_bounds[0] + artboard_bounds[1]) / 2.0;
+				
+				if movement.top {
+					max.y = center.y + (center.y - min.y);
+				} else if movement.bottom {
+					min.y = center.y - (max.y - center.y);
+				}
+				if movement.left {
+					max.x = center.x + (center.x - min.x);
+				} else if movement.right {
+					min.x = center.x - (max.x - center.x);
+				}
+			}
+
+			// Calculate final position and size correctly based on which edges are being dragged
+			let position = DVec2::new(min.x, min.y);
+			let size = DVec2::new(max.x - min.x, max.y - min.y).abs();
+
+			// Handle constrain_square (Shift key)
+			let final_size = if constrain_square {
+				let square_size = size.x.max(size.y);
+				DVec2::splat(square_size)
+			} else {
+				size
+			};
+
+			responses.add(GraphOperationMessage::ResizeArtboard {
+				layer: artboard,
+				location: position.round().as_ivec2(),
+				dimensions: final_size.round().as_ivec2(),
+			});
+		}
+	}
+
 	fn sync_history(&mut self, document: &DocumentMessageHandler) {
 		let layers: Vec<_> = document.network_interface.selected_nodes().selected_visible_and_unlocked_layers(&document.network_interface).collect();
 		self.ordered_layers.retain(|layer| layers.contains(layer));
@@ -627,13 +724,35 @@ impl Fsm for SelectToolFsmState {
 					}
 				}
 
-				// Update bounds
-				let mut transform = document
+				// Update bounds - check if we have non-artboards selected, otherwise use artboards
+				let selected_layers: Vec<_> = document
 					.network_interface
 					.selected_nodes()
 					.selected_visible_and_unlocked_layers(&document.network_interface)
-					.find(|layer| !document.network_interface.is_artboard(&layer.to_node(), &[]))
-					.map(|layer| document.metadata().transform_to_viewport_with_first_transform_node_if_group(layer, &document.network_interface))
+					.collect();
+				
+				let selected_non_artboards: Vec<_> = selected_layers
+					.iter()
+					.filter(|layer| !document.network_interface.is_artboard(&layer.to_node(), &[]))
+					.copied()
+					.collect();
+				
+				let selected_artboards: Vec<_> = selected_layers
+					.iter()
+					.filter(|layer| document.network_interface.is_artboard(&layer.to_node(), &[]))
+					.copied()
+					.collect();
+				
+				// Use non-artboards if available, otherwise use artboards  
+				let layers_for_bounds = if !selected_non_artboards.is_empty() {
+					selected_non_artboards
+				} else {
+					selected_artboards
+				};
+
+				let mut transform = layers_for_bounds
+					.first()
+					.map(|layer| document.metadata().transform_to_viewport_with_first_transform_node_if_group(*layer, &document.network_interface))
 					.unwrap_or_default();
 
 				// Check if the matrix is not invertible
@@ -643,15 +762,12 @@ impl Fsm for SelectToolFsmState {
 					transform_tampered = true;
 				}
 
-				let bounds = document
-					.network_interface
-					.selected_nodes()
-					.selected_visible_and_unlocked_layers(&document.network_interface)
-					.filter(|layer| !document.network_interface.is_artboard(&layer.to_node(), &[]))
+				let bounds = layers_for_bounds
+					.iter()
 					.filter_map(|layer| {
 						document
 							.metadata()
-							.bounding_box_with_transform(layer, transform.inverse() * document.metadata().transform_to_viewport(layer))
+							.bounding_box_with_transform(*layer, transform.inverse() * document.metadata().transform_to_viewport(*layer))
 					})
 					.reduce(graphene_std::renderer::Quad::combine_bounds);
 
@@ -947,10 +1063,18 @@ impl Fsm for SelectToolFsmState {
 					};
 
 					// Draw outline visualizations on the layers to be selected
-					let intersected_layers = match selection_shape {
+					let intersected_non_artboards = match selection_shape {
 						SelectionShapeType::Box => document.intersect_quad_no_artboards(quad, input).collect(),
 						SelectionShapeType::Lasso => tool_data.intersect_lasso_no_artboards(document, input),
 					};
+					let intersected_artboards = match selection_shape {
+						SelectionShapeType::Box => document.intersect_quad_artboards_only(quad, input).collect(),
+						SelectionShapeType::Lasso => tool_data.intersect_lasso_artboards_only(document, input),
+					};
+					
+					let mut intersected_layers = intersected_non_artboards;
+					intersected_layers.extend(intersected_artboards);
+					
 					let layers_to_outline = intersected_layers.into_iter().filter(|layer| match current_selection_mode {
 						SelectionMode::Enclosed => match selection_shape {
 							SelectionShapeType::Box => document.is_layer_fully_inside(layer, quad),
@@ -1033,8 +1157,66 @@ impl Fsm for SelectToolFsmState {
 				let intersection_list = document.click_list(input).collect::<Vec<_>>();
 				let intersection = document.find_deepest(&intersection_list);
 
-				let position = tool_data.pivot_gizmo().position(document);
-				let (resize, rotate, skew) = transforming_transform_cage(document, &mut tool_data.bounding_box_manager, input, responses, &mut tool_data.layers_dragging, Some(position));
+				// Check if only artboards are selected - if so, use artboard-style transform cage
+				let only_artboards_selected = !selected.is_empty() && selected.iter().all(|&layer| {
+					document.network_interface.is_artboard(&layer.to_node(), &[])
+				});
+
+				let (resize, rotate, skew) = if only_artboards_selected {
+					// Use artboard-style transform cage (no pivot gizmo)
+					// We need to avoid double mutable borrow, so we'll inline the logic here
+					let selected: Vec<_> = document.network_interface.selected_nodes().selected_visible_and_unlocked_layers(&document.network_interface).collect();
+					
+					// Setup bounding box manager like the artboard tool does
+					if let Some(first_artboard) = selected.first() {
+						if let Some(bounds) = document.metadata().bounding_box_document(*first_artboard) {
+							let bounding_box_manager = tool_data.bounding_box_manager.get_or_insert(BoundingBoxManager::default());
+							bounding_box_manager.bounds = bounds;
+							bounding_box_manager.transform = document.metadata().document_to_viewport;
+						}
+					}
+
+					// Check for dragging bounds like artboard tool does
+					let dragging_bounds = tool_data.bounding_box_manager.as_mut().and_then(|bounding_box| {
+						let edges = bounding_box.check_selected_edges(input.mouse.position);
+
+						bounding_box.selected_edges = edges.map(|(top, bottom, left, right)| {
+							let selected_edges = SelectedEdges::new(top, bottom, left, right, bounding_box.bounds);
+							bounding_box.opposite_pivot = selected_edges.calculate_pivot();
+							selected_edges
+						});
+
+						edges
+					});
+
+					let rotating_bounds = tool_data.bounding_box_manager.as_ref().map(|bounding_box| bounding_box.check_rotate(input.mouse.position)).unwrap_or_default();
+
+					if dragging_bounds.is_some() {
+						responses.add(DocumentMessage::StartTransaction);
+						tool_data.layers_dragging = selected;
+
+						if let Some(bounds) = &mut tool_data.bounding_box_manager {
+							bounds.original_bound_transform = bounds.transform;
+							// Set center of transformation like artboard tool does
+							bounds.center_of_transformation = bounds.transform.transform_point2((bounds.bounds[0] + bounds.bounds[1]) / 2.);
+
+							tool_data.layers_dragging.retain(|layer| {
+								if *layer != LayerNodeIdentifier::ROOT_PARENT {
+									document.network_interface.document_network().nodes.contains_key(&layer.to_node())
+								} else {
+									log::error!("ROOT_PARENT should not be part of layers_dragging");
+									false
+								}
+							});
+						}
+					}
+
+					(dragging_bounds.is_some(), rotating_bounds, false) // No skew for artboards
+				} else {
+					// Use regular transform cage with pivot gizmo
+					let position = Some(tool_data.pivot_gizmo().position(document));
+					transforming_transform_cage(document, &mut tool_data.bounding_box_manager, input, responses, &mut tool_data.layers_dragging, position)
+				};
 
 				// If the user is dragging the bounding box bounds, go into ResizingBounds mode.
 				// If the user is dragging the rotate trigger, go into RotatingBounds mode.
@@ -1219,18 +1401,44 @@ impl Fsm for SelectToolFsmState {
 			}
 			(SelectToolFsmState::ResizingBounds, SelectToolMessage::PointerMove { modifier_keys }) => {
 				if let Some(bounds) = &mut tool_data.bounding_box_manager {
-					resize_bounds(
-						document,
-						responses,
-						bounds,
-						&mut tool_data.layers_dragging,
-						&mut tool_data.snap_manager,
-						&mut tool_data.snap_candidates,
-						input,
-						input.keyboard.key(modifier_keys.center),
-						input.keyboard.key(modifier_keys.axis_align),
-						ToolType::Select,
-					);
+					// Check if we're resizing artboards only
+					let selected_layers: Vec<_> = document
+						.network_interface
+						.selected_nodes()
+						.selected_visible_and_unlocked_layers(&document.network_interface)
+						.collect();
+					
+					let selected_artboards: Vec<_> = selected_layers
+						.iter()
+						.filter(|layer| document.network_interface.is_artboard(&layer.to_node(), &[]))
+						.copied()
+						.collect();
+					
+					let selected_non_artboards: Vec<_> = selected_layers
+						.iter()
+						.filter(|layer| !document.network_interface.is_artboard(&layer.to_node(), &[]))
+						.copied()
+						.collect();
+					
+					// If we only have artboards selected, use specialized artboard resizing
+					if !selected_artboards.is_empty() && selected_non_artboards.is_empty() {
+						tool_data.resize_artboards(document, responses, input, &selected_artboards, input.keyboard.key(modifier_keys.center), input.keyboard.key(modifier_keys.axis_align));
+					} else {
+						// Use normal resizing for non-artboards
+						resize_bounds(
+							document,
+							responses,
+							bounds,
+							&mut tool_data.layers_dragging,
+							&mut tool_data.snap_manager,
+							&mut tool_data.snap_candidates,
+							input,
+							input.keyboard.key(modifier_keys.center),
+							input.keyboard.key(modifier_keys.axis_align),
+							ToolType::Select,
+						);
+					}
+					
 					let messages = [
 						SelectToolMessage::PointerOutsideViewport { modifier_keys: modifier_keys.clone() }.into(),
 						SelectToolMessage::PointerMove { modifier_keys }.into(),
@@ -1510,9 +1718,23 @@ impl Fsm for SelectToolFsmState {
 					selection_mode => selection_mode,
 				};
 
-				let intersection: Vec<LayerNodeIdentifier> = match selection_shape {
+				let intersection_non_artboards: Vec<LayerNodeIdentifier> = match selection_shape {
 					SelectionShapeType::Box => document.intersect_quad_no_artboards(quad, input).collect(),
 					SelectionShapeType::Lasso => tool_data.intersect_lasso_no_artboards(document, input),
+				};
+				let intersection_artboards: Vec<LayerNodeIdentifier> = match selection_shape {
+					SelectionShapeType::Box => document.intersect_quad_artboards_only(quad, input).collect(),
+					SelectionShapeType::Lasso => tool_data.intersect_lasso_artboards_only(document, input),
+				};
+				
+				// If both artboards and non-artboards are selected, filter out artboards
+				let intersection = if !intersection_non_artboards.is_empty() && !intersection_artboards.is_empty() {
+					intersection_non_artboards
+				} else {
+					// Combine non-artboards and artboards
+					let mut combined = intersection_non_artboards;
+					combined.extend(intersection_artboards);
+					combined
 				};
 				let new_selected: HashSet<_> = if selection_mode == SelectionMode::Enclosed {
 					let is_inside = |layer: &LayerNodeIdentifier| match selection_shape {
@@ -1668,6 +1890,55 @@ impl Fsm for SelectToolFsmState {
 				}
 				if tool_data.pivot_gizmo.pivot_disconnected() {
 					tool_data.pivot_gizmo_shift = offset;
+				}
+
+				self
+			}
+			(_, SelectToolMessage::DoubleClick { extend_selection, remove_from_selection }) => {
+				// Handle double-click selection for artboards
+				let intersection_list = document.click_list(input).collect::<Vec<_>>();
+				let intersection = document.find_deepest(&intersection_list);
+
+				if let Some(clicked_layer) = intersection {
+					// Check if the clicked layer is an artboard
+					if document.network_interface.is_artboard(&clicked_layer.to_node(), &[]) {
+						// Double-click on artboard: select it
+						let extend = input.keyboard.key(extend_selection);
+						let remove = input.keyboard.key(remove_from_selection);
+						
+						if !extend && !remove {
+							responses.add(DocumentMessage::DeselectAllLayers);
+						}
+						
+						responses.add(DocumentMessage::SelectLayer { 
+							id: clicked_layer.to_node(), 
+							ctrl: remove, 
+							shift: extend 
+						});
+					} else {
+						// Regular double-click behavior for non-artboards
+						match tool_data.nested_selection_behavior {
+							NestedSelectionBehavior::Shallowest => edit_layer_shallowest_manipulation(document, clicked_layer, responses),
+							NestedSelectionBehavior::Deepest => edit_layer_deepest_manipulation(clicked_layer, &document.network_interface, responses),
+						}
+					}
+				} else {
+					// Double-click on empty space: try to select artboard by background
+					let mut artboard_bounds = document.intersect_quad_artboards_only(Quad::from_box([input.mouse.position, input.mouse.position]), input);
+					if let Some(artboard) = artboard_bounds.next() {
+						let extend = input.keyboard.key(extend_selection);
+						let remove = input.keyboard.key(remove_from_selection);
+						
+						if !extend && !remove {
+							responses.add(DocumentMessage::DeselectAllLayers);
+						}
+						
+						responses.add(DocumentMessage::SelectLayer { 
+							id: artboard.to_node(), 
+							ctrl: remove, 
+							shift: extend 
+						});
+					}
 				}
 
 				self

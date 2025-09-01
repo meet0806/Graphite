@@ -1658,6 +1658,16 @@ impl DocumentMessageHandler {
 		self.intersect_polygon(viewport_polygon, ipp).filter(|layer| !self.network_interface.is_artboard(&layer.to_node(), &[]))
 	}
 
+	/// Runs an intersection test with artboards only and a viewport space quad
+	pub fn intersect_quad_artboards_only<'a>(&'a self, viewport_quad: graphene_std::renderer::Quad, ipp: &InputPreprocessorMessageHandler) -> impl Iterator<Item = LayerNodeIdentifier> + use<'a> {
+		self.intersect_quad(viewport_quad, ipp).filter(|layer| self.network_interface.is_artboard(&layer.to_node(), &[]))
+	}
+
+	/// Runs an intersection test with artboards only and a viewport space subpath
+	pub fn intersect_polygon_artboards_only<'a>(&'a self, viewport_polygon: Subpath<PointId>, ipp: &InputPreprocessorMessageHandler) -> impl Iterator<Item = LayerNodeIdentifier> + use<'a> {
+		self.intersect_polygon(viewport_polygon, ipp).filter(|layer| self.network_interface.is_artboard(&layer.to_node(), &[]))
+	}
+
 	pub fn is_layer_fully_inside(&self, layer: &LayerNodeIdentifier, quad: graphene_std::renderer::Quad) -> bool {
 		// Get the bounding box of the layer in document space
 		let Some(bounding_box) = self.metadata().bounding_box_viewport(*layer) else { return false };
