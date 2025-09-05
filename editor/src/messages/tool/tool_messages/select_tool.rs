@@ -607,9 +607,6 @@ impl SelectToolData {
 		from_center: bool,
 		constrain_square: bool,
 	) {
-		// For multiple artboards, we need to apply the edge-specific resize logic to each artboard individually
-		// This ensures that only the dragged edges affect the corresponding dimensions
-		
 		let Some(bounds) = &self.bounding_box_manager else {
 			return;
 		};
@@ -617,9 +614,48 @@ impl SelectToolData {
 			return;
 		};
 
-		// Get the mouse movement in document space
-		let mouse_document = bounds.transform.inverse().transform_point2(input.mouse.position);
-		
+		// If we only have one artboard, use the same simple logic as the artboard tool
+		if artboards.len() == 1 {
+			let artboard = artboards[0];
+			if artboard == LayerNodeIdentifier::ROOT_PARENT {
+				log::error!("Selected artboard cannot be ROOT_PARENT");
+				return;
+			}
+
+			let center = from_center.then_some(bounds.center_of_transformation);
+			let (min, size) = movement.new_size(input.mouse.position, bounds.original_bound_transform, center, constrain_square, None);
+			let max = min + size;
+			let position = min.min(max);
+			let size = (max - min).abs();
+
+			responses.add(GraphOperationMessage::ResizeArtboard {
+				layer: artboard,
+				location: position.round().as_ivec2(),
+				dimensions: size.round().as_ivec2(),
+			});
+			return;
+		}
+
+		// For multiple artboards, use proportional scaling but with more stability
+		let center = from_center.then_some(bounds.center_of_transformation);
+		let (new_min, new_size) = movement.new_size(input.mouse.position, bounds.original_bound_transform, center, constrain_square, None);
+		let new_max = new_min + new_size;
+		let new_position = new_min.min(new_max);
+		let new_size = (new_max - new_min).abs();
+
+		// Get the original combined bounds
+		let original_bounds = bounds.bounds;
+		let original_size = original_bounds[1] - original_bounds[0];
+
+		// Prevent division by zero
+		if original_size.x.abs() < f64::EPSILON || original_size.y.abs() < f64::EPSILON {
+			return;
+		}
+
+		// Calculate scale factors based on the new size vs original size
+		let scale_x = new_size.x / original_size.x;
+		let scale_y = new_size.y / original_size.y;
+
 		for &artboard in artboards {
 			if artboard == LayerNodeIdentifier::ROOT_PARENT {
 				log::error!("Selected artboard cannot be ROOT_PARENT");
@@ -630,53 +666,35 @@ impl SelectToolData {
 				continue;
 			};
 
-			// Apply the same edge-specific logic as the original artboard tool
-			let mut min = artboard_bounds[0];
-			let mut max = artboard_bounds[1];
+			// Calculate artboard's relative position within the original combined bounds
+			let relative_min = (artboard_bounds[0] - original_bounds[0]) / original_size;
+			let relative_max = (artboard_bounds[1] - original_bounds[0]) / original_size;
 
-			// Only modify the coordinates for the edges that are being dragged
-			if movement.top {
-				min.y = mouse_document.y;
-			} else if movement.bottom {
-				max.y = mouse_document.y;
-			}
-			if movement.left {
-				min.x = mouse_document.x;
-			} else if movement.right {
-				max.x = mouse_document.x;
-			}
+			// Apply the scaling to get new relative positions
+			let new_relative_min = relative_min * DVec2::new(scale_x, scale_y);
+			let new_relative_max = relative_max * DVec2::new(scale_x, scale_y);
 
-			// Handle Alt-key (from_center) scaling around the center
-			if from_center {
-				let center = (artboard_bounds[0] + artboard_bounds[1]) / 2.0;
-				
-				if movement.top {
-					max.y = center.y + (center.y - min.y);
-				} else if movement.bottom {
-					min.y = center.y - (max.y - center.y);
-				}
-				if movement.left {
-					max.x = center.x + (center.x - min.x);
-				} else if movement.right {
-					min.x = center.x - (max.x - center.x);
-				}
-			}
+			// Convert back to absolute positions
+			let new_artboard_min = new_position + new_relative_min * new_size;
+			let new_artboard_max = new_position + new_relative_max * new_size;
 
-			// Calculate final position and size correctly based on which edges are being dragged
-			let position = DVec2::new(min.x, min.y);
-			let size = DVec2::new(max.x - min.x, max.y - min.y).abs();
+			let final_position = new_artboard_min.min(new_artboard_max);
+			let final_size = (new_artboard_max - new_artboard_min).abs();
 
 			// Handle constrain_square (Shift key)
 			let final_size = if constrain_square {
-				let square_size = size.x.max(size.y);
+				let square_size = final_size.x.max(final_size.y);
 				DVec2::splat(square_size)
 			} else {
-				size
+				final_size
 			};
+
+			// Ensure minimum size
+			let final_size = final_size.max(DVec2::splat(1.0));
 
 			responses.add(GraphOperationMessage::ResizeArtboard {
 				layer: artboard,
-				location: position.round().as_ivec2(),
+				location: final_position.round().as_ivec2(),
 				dimensions: final_size.round().as_ivec2(),
 			});
 		}
