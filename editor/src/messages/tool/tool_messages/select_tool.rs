@@ -622,8 +622,18 @@ impl SelectToolData {
 				return;
 			}
 
-			let center = from_center.then_some(bounds.center_of_transformation);
-			let (min, size) = movement.new_size(input.mouse.position, bounds.original_bound_transform, center, constrain_square, None);
+			// Get the actual bounds of this specific artboard, not the cached bounds
+			let Some(artboard_bounds) = document.metadata().bounding_box_document(artboard) else {
+				return;
+			};
+
+			// Calculate the center and create a fresh SelectedEdges for this artboard
+			let artboard_center = (artboard_bounds[0] + artboard_bounds[1]) / 2.0;
+			let center = from_center.then_some(artboard_center);
+			
+			// Use document_to_viewport transform for artboards
+			let transform = document.metadata().document_to_viewport;
+			let (min, size) = movement.new_size(input.mouse.position, transform, center, constrain_square, None);
 			let max = min + size;
 			let position = min.min(max);
 			let size = (max - min).abs();
@@ -763,15 +773,20 @@ impl Fsm for SelectToolFsmState {
 				
 				// Use non-artboards if available, otherwise use artboards  
 				let layers_for_bounds = if !selected_non_artboards.is_empty() {
-					selected_non_artboards
+					&selected_non_artboards
 				} else {
-					selected_artboards
+					&selected_artboards
 				};
 
-				let mut transform = layers_for_bounds
-					.first()
-					.map(|layer| document.metadata().transform_to_viewport_with_first_transform_node_if_group(*layer, &document.network_interface))
-					.unwrap_or_default();
+				let mut transform = if !selected_artboards.is_empty() && selected_non_artboards.is_empty() {
+					// For artboards, use document to viewport transform
+					document.metadata().document_to_viewport
+				} else {
+					layers_for_bounds
+						.first()
+						.map(|layer| document.metadata().transform_to_viewport_with_first_transform_node_if_group(*layer, &document.network_interface))
+						.unwrap_or_default()
+				};
 
 				// Check if the matrix is not invertible
 				let mut transform_tampered = false;
@@ -780,14 +795,23 @@ impl Fsm for SelectToolFsmState {
 					transform_tampered = true;
 				}
 
-				let bounds = layers_for_bounds
-					.iter()
-					.filter_map(|layer| {
-						document
-							.metadata()
-							.bounding_box_with_transform(*layer, transform.inverse() * document.metadata().transform_to_viewport(*layer))
-					})
-					.reduce(graphene_std::renderer::Quad::combine_bounds);
+				let bounds = if !selected_artboards.is_empty() && selected_non_artboards.is_empty() {
+					// For artboards, use document space bounds directly
+					selected_artboards
+						.iter()
+						.filter_map(|layer| document.metadata().bounding_box_document(*layer))
+						.reduce(Quad::combine_bounds)
+				} else {
+					// For regular layers, use the existing transform-based approach
+					layers_for_bounds
+						.iter()
+						.filter_map(|layer| {
+							document
+								.metadata()
+								.bounding_box_with_transform(**layer, transform.inverse() * document.metadata().transform_to_viewport(**layer))
+						})
+						.reduce(Quad::combine_bounds)
+				};
 
 				// When not in Drawing State
 				// Only highlight layers if the viewport is not being panned (middle mouse button is pressed)
