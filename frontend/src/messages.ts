@@ -302,9 +302,8 @@ export class UpdatePlatform extends JsMessage {
 	readonly platform!: AppWindowPlatform;
 }
 
-export class UpdateWindowState extends JsMessage {
+export class UpdateMaximized extends JsMessage {
 	readonly maximized!: boolean;
-	readonly minimized!: boolean;
 }
 
 export class CloseWindow extends JsMessage {}
@@ -942,6 +941,8 @@ export class ColorInput extends WidgetProps {
 
 	disabled!: boolean;
 
+	narrow!: boolean;
+
 	menuDirection!: MenuDirection | undefined;
 
 	// allowTransparency!: boolean; // TODO: Implement
@@ -1039,6 +1040,8 @@ export class DropdownInput extends WidgetProps {
 
 	disabled!: boolean;
 
+	narrow!: boolean;
+
 	@Transform(({ value }: { value: string }) => value || undefined)
 	tooltip!: string | undefined;
 
@@ -1127,6 +1130,9 @@ export class NumberInput extends WidgetProps {
 
 	disabled!: boolean;
 
+	// Narrow
+	narrow!: boolean;
+
 	// Value
 
 	value!: number | undefined;
@@ -1204,6 +1210,8 @@ export class RadioInput extends WidgetProps {
 
 	disabled!: boolean;
 
+	narrow!: boolean;
+
 	selectedIndex!: number | undefined;
 
 	minWidth!: number;
@@ -1261,6 +1269,8 @@ export class TextButton extends WidgetProps {
 
 	disabled!: boolean;
 
+	narrow!: boolean;
+
 	@Transform(({ value }: { value: string }) => value || undefined)
 	tooltip!: string | undefined;
 
@@ -1302,6 +1312,8 @@ export class TextInput extends WidgetProps {
 
 	disabled!: boolean;
 
+	narrow!: boolean;
+
 	minWidth!: number;
 
 	maxWidth!: number;
@@ -1316,6 +1328,8 @@ export class TextLabel extends WidgetProps {
 
 	// Props
 	disabled!: boolean;
+
+	narrow!: boolean;
 
 	bold!: boolean;
 
@@ -1679,7 +1693,7 @@ export const messageMakers: Record<string, MessageMaker> = {
 	UpdateLayersPanelControlBarLeftLayout,
 	UpdateLayersPanelControlBarRightLayout,
 	UpdateLayerWidths,
-	UpdateWindowState,
+	UpdateMaximized,
 	UpdateMenuBarLayout,
 	UpdateMouseCursor,
 	UpdateNodeGraphControlBarLayout,

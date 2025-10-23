@@ -136,9 +136,11 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 
 			// Messages
 			PortfolioMessage::Init => {
-				// Load persistent data from the browser database
-				responses.add(FrontendMessage::TriggerLoadFirstAutoSaveDocument);
+				// Tell frontend to load persistent preferences
 				responses.add(FrontendMessage::TriggerLoadPreferences);
+
+				// Tell frontend to load the current document
+				responses.add(FrontendMessage::TriggerLoadFirstAutoSaveDocument);
 
 				// Display the menu bar at the top of the window
 				responses.add(MenuBarMessage::SendLayout);
@@ -149,8 +151,10 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					node_types: document_node_definitions::collect_node_types(),
 				});
 
-				// Finish loading persistent data from the browser database
+				// Tell frontend to finish loading persistent documents
 				responses.add(FrontendMessage::TriggerLoadRestAutoSaveDocuments);
+
+				responses.add(FrontendMessage::TriggerOpenLaunchDocuments);
 			}
 			PortfolioMessage::DocumentPassMessage { document_id, message } => {
 				if let Some(document) = self.documents.get_mut(&document_id) {
@@ -192,6 +196,7 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					document: document.serialize_document(),
 					details: DocumentDetails {
 						name: document.name.clone(),
+						path: document.path.clone(),
 						is_saved: document.is_saved(),
 						is_auto_saved: document.is_auto_saved(),
 					},
@@ -390,19 +395,17 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 			PortfolioMessage::NewDocumentWithName { name } => {
 				let mut new_document = DocumentMessageHandler::default();
 				new_document.name = name;
-				let mut new_responses = VecDeque::new();
-				new_responses.add(DocumentMessage::PTZUpdate);
+
+				responses.add(DocumentMessage::PTZUpdate);
 
 				let document_id = DocumentId(generate_uuid());
 				if self.active_document().is_some() {
-					new_responses.add(EventMessage::ToolAbort);
-					new_responses.add(NavigationMessage::CanvasPan { delta: (0., 0.).into() });
+					responses.add(EventMessage::ToolAbort);
+					responses.add(NavigationMessage::CanvasPan { delta: (0., 0.).into() });
 				}
 
-				self.load_document(new_document, document_id, self.layers_panel_open, &mut new_responses, false);
-				new_responses.add(PortfolioMessage::SelectDocument { document_id });
-				new_responses.extend(responses.drain(..));
-				*responses = new_responses;
+				self.load_document(new_document, document_id, self.layers_panel_open, responses, false);
+				responses.add(PortfolioMessage::SelectDocument { document_id });
 			}
 			PortfolioMessage::NextDocument => {
 				if let Some(active_document_id) = self.active_document_id {
@@ -422,17 +425,16 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 				document_path,
 				document_serialized_content,
 			} => {
-				let document_id = DocumentId(generate_uuid());
 				responses.add(PortfolioMessage::OpenDocumentFileWithId {
-					document_id,
+					document_id: DocumentId(generate_uuid()),
 					document_name,
 					document_path,
 					document_is_auto_saved: false,
 					document_is_saved: true,
 					document_serialized_content,
 					to_front: false,
+					select_after_open: true,
 				});
-				responses.add(PortfolioMessage::SelectDocument { document_id });
 			}
 			PortfolioMessage::ToggleResetNodesToDefinitionsOnOpen => {
 				self.reset_node_definitions_on_open = !self.reset_node_definitions_on_open;
@@ -446,6 +448,7 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 				document_is_saved,
 				document_serialized_content,
 				to_front,
+				select_after_open,
 			} => {
 				// Upgrade the document being opened to use fresh copies of all nodes
 				let reset_node_definitions_on_open = reset_node_definitions_on_open || document_migration_reset_node_definition(&document_serialized_content);
@@ -540,6 +543,10 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 
 				// Load the document into the portfolio so it opens in the editor
 				self.load_document(document, document_id, self.layers_panel_open, responses, to_front);
+
+				if select_after_open {
+					responses.add(PortfolioMessage::SelectDocument { document_id });
+				}
 			}
 			PortfolioMessage::PasteIntoFolder { clipboard, parent, insert_index } => {
 				let mut all_new_ids = Vec::new();
@@ -954,14 +961,15 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 			}
 			PortfolioMessage::SubmitGraphRender { document_id, ignore_hash } => {
 				let node_to_inspect = self.node_to_inspect();
-				let result = self.executor.submit_node_graph_evaluation(
-					self.documents.get_mut(&document_id).expect("Tried to render non-existent document"),
-					document_id,
-					ipp.viewport_bounds.size().as_uvec2(),
-					timing_information,
-					node_to_inspect,
-					ignore_hash,
-				);
+				let Some(document) = self.documents.get_mut(&document_id) else {
+					log::error!("Tried to render non-existent document");
+					return;
+				};
+				let viewport_resolution = ipp.viewport_bounds.size().as_uvec2();
+
+				let result = self
+					.executor
+					.submit_node_graph_evaluation(document, document_id, viewport_resolution, timing_information, node_to_inspect, ignore_hash);
 
 				match result {
 					Err(description) => {
@@ -1047,9 +1055,10 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 						self.documents.get(id).map(|document| OpenDocument {
 							id: *id,
 							details: DocumentDetails {
-								is_auto_saved: document.is_auto_saved(),
-								is_saved: document.is_saved(),
 								name: document.name.clone(),
+								path: document.path.clone(),
+								is_saved: document.is_saved(),
+								is_auto_saved: document.is_auto_saved(),
 							},
 						})
 					})
@@ -1173,7 +1182,7 @@ impl PortfolioMessageHandler {
 
 	/// Returns an iterator over the open documents in order.
 	pub fn ordered_document_iterator(&self) -> impl Iterator<Item = &DocumentMessageHandler> {
-		self.document_ids.iter().map(|id| self.documents.get(id).expect("document id was not found in the document hashmap"))
+		self.document_ids.iter().map(|id| self.documents.get(id).expect("Document id was not found in the document hashmap"))
 	}
 
 	fn document_index(&self, document_id: DocumentId) -> usize {
