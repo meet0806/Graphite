@@ -6,8 +6,12 @@ description = "graphene raster data format"
 authors = ["Graphite Authors <contact@graphite.rs>"]
 license = "MIT OR Apache-2.0"
 
+[lib]
+crate-type = ["rlib", "dylib"]
+
 [dependencies]
 
 [build-dependencies]
 cargo-gpu = { workspace = true }
 env_logger = { workspace = true }
+log = { workspace = true }
