@@ -128,7 +128,7 @@ impl ToolMetadata for PenTool {
 	fn icon_name(&self) -> String {
 		"VectorPenTool".into()
 	}
-	fn tooltip(&self) -> String {
+	fn tooltip_label(&self) -> String {
 		"Pen Tool".into()
 	}
 	fn tool_type(&self) -> crate::messages::tool::utility_types::ToolType {
@@ -136,7 +136,7 @@ impl ToolMetadata for PenTool {
 	}
 }
 
-fn create_weight_widget(line_weight: f64) -> WidgetHolder {
+fn create_weight_widget(line_weight: f64) -> WidgetInstance {
 	NumberInput::new(Some(line_weight))
 		.unit(" px")
 		.label("Weight")
@@ -148,7 +148,7 @@ fn create_weight_widget(line_weight: f64) -> WidgetHolder {
 			}
 			.into()
 		})
-		.widget_holder()
+		.widget_instance()
 }
 
 impl LayoutHolder for PenTool {
@@ -178,7 +178,7 @@ impl LayoutHolder for PenTool {
 			},
 		);
 
-		widgets.push(Separator::new(SeparatorType::Unrelated).widget_holder());
+		widgets.push(Separator::new(SeparatorType::Unrelated).widget_instance());
 
 		widgets.append(&mut self.options.stroke.create_widgets(
 			"Stroke",
@@ -205,17 +205,18 @@ impl LayoutHolder for PenTool {
 			},
 		));
 
-		widgets.push(Separator::new(SeparatorType::Unrelated).widget_holder());
+		widgets.push(Separator::new(SeparatorType::Unrelated).widget_instance());
 
 		widgets.push(create_weight_widget(self.options.line_weight));
 
-		widgets.push(Separator::new(SeparatorType::Unrelated).widget_holder());
+		widgets.push(Separator::new(SeparatorType::Unrelated).widget_instance());
 
 		widgets.push(
 			RadioInput::new(vec![
 				RadioEntryData::new("all")
 					.icon("HandleVisibilityAll")
-					.tooltip("Show all handles regardless of selection")
+					.tooltip_label("Show All Handles")
+					.tooltip_description("Show all handles regardless of selection.")
 					.on_update(move |_| {
 						PenToolMessage::UpdateOptions {
 							options: PenOptionsUpdate::OverlayModeType(PenOverlayMode::AllHandles),
@@ -224,7 +225,8 @@ impl LayoutHolder for PenTool {
 					}),
 				RadioEntryData::new("frontier")
 					.icon("HandleVisibilityFrontier")
-					.tooltip("Show only handles at the frontiers of the segments connected to selected points")
+					.tooltip_label("Show Frontier Handles")
+					.tooltip_description("Show only handles at the frontiers of the segments connected to selected points.")
 					.on_update(move |_| {
 						PenToolMessage::UpdateOptions {
 							options: PenOptionsUpdate::OverlayModeType(PenOverlayMode::FrontierHandles),
@@ -233,10 +235,10 @@ impl LayoutHolder for PenTool {
 					}),
 			])
 			.selected_index(Some(self.options.pen_overlay_mode as u32))
-			.widget_holder(),
+			.widget_instance(),
 		);
 
-		Layout::WidgetLayout(WidgetLayout::new(vec![LayoutGroup::Row { widgets }]))
+		Layout(vec![LayoutGroup::Row { widgets }])
 	}
 }
 
@@ -2286,7 +2288,7 @@ impl Fsm for PenToolFsmState {
 			}
 		};
 
-		responses.add(FrontendMessage::UpdateInputHints { hint_data });
+		hint_data.send_layout(responses);
 	}
 
 	fn update_cursor(&self, responses: &mut VecDeque<Message>) {

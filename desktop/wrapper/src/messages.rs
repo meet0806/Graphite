@@ -32,10 +32,6 @@ pub enum DesktopFrontendMessage {
 		height: f64,
 	},
 	UpdateOverlays(vello::Scene),
-	MinimizeWindow,
-	MaximizeWindow,
-	DragWindow,
-	CloseWindow,
 	PersistenceWriteDocument {
 		id: DocumentId,
 		document: Document,
@@ -58,6 +54,13 @@ pub enum DesktopFrontendMessage {
 	UpdateMenu {
 		entries: Vec<MenuItem>,
 	},
+	WindowClose,
+	WindowMinimize,
+	WindowMaximize,
+	WindowDrag,
+	WindowHide,
+	WindowHideOthers,
+	WindowShowAll,
 }
 
 pub enum DesktopWrapperMessage {
@@ -109,7 +112,7 @@ pub enum DesktopWrapperMessage {
 		preferences: Option<Preferences>,
 	},
 	MenuEvent {
-		id: u64,
+		id: String,
 	},
 }
 
@@ -144,20 +147,20 @@ pub enum Platform {
 
 pub enum MenuItem {
 	Action {
-		id: u64,
+		id: String,
 		text: String,
 		enabled: bool,
 		shortcut: Option<Shortcut>,
 	},
 	Checkbox {
-		id: u64,
+		id: String,
 		text: String,
 		enabled: bool,
 		shortcut: Option<Shortcut>,
 		checked: bool,
 	},
 	SubMenu {
-		id: u64,
+		id: String,
 		text: String,
 		enabled: bool,
 		items: Vec<MenuItem>,

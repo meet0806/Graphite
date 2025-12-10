@@ -3,8 +3,7 @@
 
 	import { type Editor } from "@graphite/editor";
 	import { createClipboardManager } from "@graphite/io-managers/clipboard";
-	import { createDragManager } from "@graphite/io-managers/drag";
-	import { createHyperlinkManager } from "@graphite/io-managers/hyperlinks";
+	import { createHyperlinkManager } from "@graphite/io-managers/hyperlink";
 	import { createInputManager } from "@graphite/io-managers/input";
 	import { createLocalizationManager } from "@graphite/io-managers/localization";
 	import { createPanicManager } from "@graphite/io-managers/panic";
@@ -16,6 +15,7 @@
 	import { createFullscreenState } from "@graphite/state-providers/fullscreen";
 	import { createNodeGraphState } from "@graphite/state-providers/node-graph";
 	import { createPortfolioState } from "@graphite/state-providers/portfolio";
+	import { createTooltipState } from "@graphite/state-providers/tooltip";
 	import { operatingSystem } from "@graphite/utility-functions/platform";
 
 	import MainWindow from "@graphite/components/window/MainWindow.svelte";
@@ -27,6 +27,8 @@
 	// State provider systems
 	let dialog = createDialogState(editor);
 	setContext("dialog", dialog);
+	let tooltip = createTooltipState();
+	setContext("tooltip", tooltip);
 	let document = createDocumentState(editor);
 	setContext("document", document);
 	let fonts = createFontsState(editor);
@@ -46,7 +48,6 @@
 	createLocalizationManager(editor);
 	createPanicManager(editor, dialog);
 	createPersistenceManager(editor, portfolio);
-	let dragManagerDestructor = createDragManager();
 	let inputManagerDestructor = createInputManager(editor, dialog, portfolio, document, fullscreen);
 
 	onMount(() => {
@@ -56,7 +57,6 @@
 
 	onDestroy(() => {
 		// Call the destructor for each manager
-		dragManagerDestructor();
 		inputManagerDestructor();
 	});
 </script>
@@ -221,6 +221,10 @@
 		overscroll-behavior: none;
 		-webkit-user-select: none; // Still required by Safari as of 2025
 		user-select: none;
+	}
+
+	body.cursor-hidden * {
+		cursor: none !important;
 	}
 
 	// Needed for the viewport hole punch on desktop

@@ -4,9 +4,10 @@ use super::utility_types::{PanelType, PersistentData};
 use crate::application::generate_uuid;
 use crate::consts::{DEFAULT_DOCUMENT_NAME, DEFAULT_STROKE_WIDTH, FILE_EXTENSION};
 use crate::messages::animation::TimingInformation;
-use crate::messages::debug::utility_types::MessageLoggingVerbosity;
 use crate::messages::dialog::simple_dialogs;
 use crate::messages::frontend::utility_types::{DocumentDetails, OpenDocument};
+use crate::messages::input_mapper::utility_types::input_keyboard::Key;
+use crate::messages::input_mapper::utility_types::macros::{action_shortcut, action_shortcut_manual};
 use crate::messages::layout::utility_types::widget_prelude::*;
 use crate::messages::portfolio::document::DocumentMessageContext;
 use crate::messages::portfolio::document::graph_operation::utility_types::TransformIn;
@@ -19,8 +20,8 @@ use crate::messages::portfolio::document_migration::*;
 use crate::messages::preferences::SelectionMode;
 use crate::messages::prelude::*;
 use crate::messages::tool::common_functionality::graph_modification_utils;
-use crate::messages::tool::common_functionality::utility_functions::make_path_editable_is_allowed;
-use crate::messages::tool::utility_types::{HintData, HintGroup, ToolType};
+use crate::messages::tool::utility_types::{HintData, ToolType};
+use crate::messages::viewport::ToPhysical;
 use crate::node_graph_executor::{ExportConfig, NodeGraphExecutor};
 use derivative::*;
 use glam::{DAffine2, DVec2};
@@ -39,7 +40,6 @@ pub struct PortfolioMessageContext<'a> {
 	pub preferences: &'a PreferencesMessageHandler,
 	pub animation: &'a AnimationMessageHandler,
 	pub current_tool: &'a ToolType,
-	pub message_logging_verbosity: MessageLoggingVerbosity,
 	pub reset_node_definitions_on_open: bool,
 	pub timing_information: TimingInformation,
 	pub viewport: &'a ViewportMessageHandler,
@@ -48,7 +48,6 @@ pub struct PortfolioMessageContext<'a> {
 #[derive(Debug, Derivative, ExtractField)]
 #[derivative(Default)]
 pub struct PortfolioMessageHandler {
-	menu_bar_message_handler: MenuBarMessageHandler,
 	pub documents: HashMap<DocumentId, DocumentMessageHandler>,
 	document_ids: VecDeque<DocumentId>,
 	active_panel: PanelType,
@@ -73,7 +72,6 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 			preferences,
 			animation,
 			current_tool,
-			message_logging_verbosity,
 			reset_node_definitions_on_open,
 			timing_information,
 			viewport,
@@ -81,40 +79,6 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 
 		match message {
 			// Sub-messages
-			PortfolioMessage::MenuBar(message) => {
-				self.menu_bar_message_handler.has_active_document = false;
-				self.menu_bar_message_handler.canvas_tilted = false;
-				self.menu_bar_message_handler.canvas_flipped = false;
-				self.menu_bar_message_handler.rulers_visible = false;
-				self.menu_bar_message_handler.node_graph_open = false;
-				self.menu_bar_message_handler.has_selected_nodes = false;
-				self.menu_bar_message_handler.has_selected_layers = false;
-				self.menu_bar_message_handler.has_selection_history = (false, false);
-				self.menu_bar_message_handler.make_path_editable_is_allowed = false;
-				self.menu_bar_message_handler.data_panel_open = self.data_panel_open;
-				self.menu_bar_message_handler.layers_panel_open = self.layers_panel_open;
-				self.menu_bar_message_handler.properties_panel_open = self.properties_panel_open;
-				self.menu_bar_message_handler.message_logging_verbosity = message_logging_verbosity;
-				self.menu_bar_message_handler.reset_node_definitions_on_open = reset_node_definitions_on_open;
-
-				if let Some(document) = self.active_document_id.and_then(|document_id| self.documents.get_mut(&document_id)) {
-					self.menu_bar_message_handler.has_active_document = true;
-					self.menu_bar_message_handler.canvas_tilted = document.document_ptz.tilt() != 0.;
-					self.menu_bar_message_handler.canvas_flipped = document.document_ptz.flip;
-					self.menu_bar_message_handler.rulers_visible = document.rulers_visible;
-					self.menu_bar_message_handler.node_graph_open = document.is_graph_overlay_open();
-					let selected_nodes = document.network_interface.selected_nodes();
-					self.menu_bar_message_handler.has_selected_nodes = selected_nodes.selected_nodes().next().is_some();
-					self.menu_bar_message_handler.has_selected_layers = selected_nodes.selected_visible_layers(&document.network_interface).next().is_some();
-					self.menu_bar_message_handler.has_selection_history = {
-						let metadata = &document.network_interface.document_network_metadata().persistent_metadata;
-						(!metadata.selection_undo_history.is_empty(), !metadata.selection_redo_history.is_empty())
-					};
-					self.menu_bar_message_handler.make_path_editable_is_allowed = make_path_editable_is_allowed(&mut document.network_interface).is_some();
-				}
-
-				self.menu_bar_message_handler.process_message(message, responses, ());
-			}
 			PortfolioMessage::Document(message) => {
 				if let Some(document_id) = self.active_document_id
 					&& let Some(document) = self.documents.get_mut(&document_id)
@@ -151,6 +115,17 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					node_descriptions: document_node_definitions::collect_node_descriptions(),
 					node_types: document_node_definitions::collect_node_types(),
 				});
+
+				// Send shortcuts for widgets created in the frontend which need shortcut tooltips
+				responses.add(FrontendMessage::SendShortcutF11 {
+					shortcut: action_shortcut_manual!(Key::F11),
+				});
+				responses.add(FrontendMessage::SendShortcutAltClick {
+					shortcut: action_shortcut_manual!(Key::Alt, Key::MouseLeft),
+				});
+
+				// Before loading any documents, initially prepare the welcome screen buttons layout
+				responses.add(PortfolioMessage::RequestWelcomeScreenButtonsLayout);
 
 				// Tell frontend to finish loading persistent documents
 				responses.add(FrontendMessage::TriggerLoadRestAutoSaveDocuments);
@@ -217,8 +192,7 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					responses.add(PropertiesPanelMessage::Clear);
 					responses.add(DocumentMessage::ClearLayersPanel);
 					responses.add(DataPanelMessage::ClearLayout);
-					let hint_data = HintData(vec![HintGroup(vec![])]);
-					responses.add(FrontendMessage::UpdateInputHints { hint_data });
+					HintData::clear_layout(responses);
 				}
 
 				for document_id in &self.document_ids {
@@ -242,8 +216,7 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					responses.add(PropertiesPanelMessage::Clear);
 					responses.add(DocumentMessage::ClearLayersPanel);
 					responses.add(DataPanelMessage::ClearLayout);
-					let hint_data = HintData(vec![HintGroup(vec![])]);
-					responses.add(FrontendMessage::UpdateInputHints { hint_data });
+					HintData::clear_layout(responses);
 				}
 
 				// Actually delete the document (delay to delete document is required to let the document and properties panel messages above get processed)
@@ -364,12 +337,13 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					let node_to_inspect = self.node_to_inspect();
 
 					let scale = viewport.scale();
-					let resolution = viewport.size().into_dvec2().round().as_uvec2();
+					// Use exact physical dimensions from browser (via ResizeObserver's devicePixelContentBoxSize)
+					let physical_resolution = viewport.size().to_physical().into_dvec2().round().as_uvec2();
 
 					if let Ok(message) = self.executor.submit_node_graph_evaluation(
 						self.documents.get_mut(document_id).expect("Tried to render non-existent document"),
 						*document_id,
-						resolution,
+						physical_resolution,
 						scale,
 						timing_information,
 						node_to_inspect,
@@ -880,6 +854,53 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 					responses.add(PortfolioMessage::SelectDocument { document_id: prev_id });
 				}
 			}
+			PortfolioMessage::RequestWelcomeScreenButtonsLayout => {
+				let donate = "https://graphite.art/donate/";
+
+				let table = LayoutGroup::Table {
+					unstyled: true,
+					rows: vec![
+						vec![
+							TextButton::new("New Document")
+								.icon(Some("File".into()))
+								.flush(true)
+								.on_commit(|_| DialogMessage::RequestNewDocumentDialog.into())
+								.widget_instance(),
+							ShortcutLabel::new(action_shortcut!(DialogMessageDiscriminant::RequestNewDocumentDialog)).widget_instance(),
+						],
+						vec![
+							TextButton::new("Open Document")
+								.icon(Some("Folder".into()))
+								.flush(true)
+								.on_commit(|_| PortfolioMessage::OpenDocument.into())
+								.widget_instance(),
+							ShortcutLabel::new(action_shortcut!(PortfolioMessageDiscriminant::OpenDocument)).widget_instance(),
+						],
+						vec![
+							TextButton::new("Open Demo Artwork")
+								.icon(Some("Image".into()))
+								.flush(true)
+								.on_commit(|_| DialogMessage::RequestDemoArtworkDialog.into())
+								.widget_instance(),
+						],
+						vec![
+							TextButton::new("Support the Development Fund")
+								.icon(Some("Heart".into()))
+								.flush(true)
+								.on_commit(move |_| FrontendMessage::TriggerVisitLink { url: donate.to_string() }.into())
+								.widget_instance(),
+						],
+					],
+				};
+
+				responses.add(LayoutMessage::DestroyLayout {
+					layout_target: LayoutTarget::WelcomeScreenButtons,
+				});
+				responses.add(LayoutMessage::SendLayout {
+					layout: Layout(vec![table]),
+					layout_target: LayoutTarget::WelcomeScreenButtons,
+				});
+			}
 			PortfolioMessage::SetActivePanel { panel } => {
 				self.active_panel = panel;
 				responses.add(DocumentMessage::SetActivePanel { active_panel: self.active_panel });
@@ -970,11 +991,12 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 				};
 
 				let scale = viewport.scale();
-				let resolution = viewport.size().into_dvec2().round().as_uvec2();
+				// Use exact physical dimensions from browser (via ResizeObserver's devicePixelContentBoxSize)
+				let physical_resolution = viewport.size().to_physical().into_dvec2().round().as_uvec2();
 
 				let result = self
 					.executor
-					.submit_node_graph_evaluation(document, document_id, resolution, scale, timing_information, node_to_inspect, ignore_hash);
+					.submit_node_graph_evaluation(document, document_id, physical_resolution, scale, timing_information, node_to_inspect, ignore_hash);
 
 				match result {
 					Err(description) => {
@@ -1068,7 +1090,14 @@ impl MessageHandler<PortfolioMessage, PortfolioMessageContext<'_>> for Portfolio
 						})
 					})
 					.collect::<Vec<_>>();
+
+				let no_open_documents = open_documents.is_empty();
+
 				responses.add(FrontendMessage::UpdateOpenDocumentsList { open_documents });
+
+				if no_open_documents {
+					responses.add(PortfolioMessage::RequestWelcomeScreenButtonsLayout);
+				}
 			}
 			PortfolioMessage::UpdateVelloPreference => {
 				let active = if cfg!(target_family = "wasm") { false } else { preferences.use_vello };

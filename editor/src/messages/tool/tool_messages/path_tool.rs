@@ -4,6 +4,7 @@ use crate::consts::{
 	COLOR_OVERLAY_BLUE, COLOR_OVERLAY_GRAY, COLOR_OVERLAY_GREEN, COLOR_OVERLAY_RED, DEFAULT_STROKE_WIDTH, DOUBLE_CLICK_MILLISECONDS, DRAG_DIRECTION_MODE_DETERMINATION_THRESHOLD, DRAG_THRESHOLD,
 	DRILL_THROUGH_THRESHOLD, HANDLE_ROTATE_SNAP_ANGLE, SEGMENT_INSERTION_DISTANCE, SEGMENT_OVERLAY_SIZE, SELECTION_THRESHOLD, SELECTION_TOLERANCE,
 };
+use crate::messages::input_mapper::utility_types::macros::action_shortcut_manual;
 use crate::messages::portfolio::document::graph_operation::utility_types::TransformIn;
 use crate::messages::portfolio::document::node_graph::document_node_definitions::resolve_document_node_type;
 use crate::messages::portfolio::document::overlays::utility_functions::{path_overlays, selected_segments};
@@ -184,7 +185,7 @@ impl ToolMetadata for PathTool {
 	fn icon_name(&self) -> String {
 		"VectorPathTool".into()
 	}
-	fn tooltip(&self) -> String {
+	fn tooltip_label(&self) -> String {
 		"Path Tool".into()
 	}
 	fn tool_type(&self) -> crate::messages::tool::utility_types::ToolType {
@@ -214,7 +215,7 @@ impl LayoutHolder for PathTool {
 					Message::NoOp
 				}
 			})
-			.widget_holder();
+			.widget_instance();
 
 		let y_location = NumberInput::new(y)
 			.unit(" px")
@@ -230,12 +231,12 @@ impl LayoutHolder for PathTool {
 					Message::NoOp
 				}
 			})
-			.widget_holder();
+			.widget_instance();
 
-		let related_seperator = Separator::new(SeparatorType::Related).widget_holder();
-		let unrelated_seperator = Separator::new(SeparatorType::Unrelated).widget_holder();
+		let related_seperator = Separator::new(SeparatorType::Related).widget_instance();
+		let unrelated_seperator = Separator::new(SeparatorType::Unrelated).widget_instance();
 
-		let colinear_handles_tooltip = "Keep both handles unbent, each 180° apart, when moving either";
+		let colinear_handles_description = "Keep both handles unbent, each 180° apart, when moving either.";
 		let colinear_handles_state = manipulator_angle.and_then(|angle| match angle {
 			ManipulatorAngle::Colinear => Some(true),
 			ManipulatorAngle::Free => Some(false),
@@ -253,32 +254,39 @@ impl LayoutHolder for PathTool {
 					PathToolMessage::ManipulatorMakeHandlesFree.into()
 				}
 			})
-			.tooltip(colinear_handles_tooltip)
+			.tooltip_label("Colinear Handles")
+			.tooltip_description(colinear_handles_description)
 			.for_label(checkbox_id)
-			.widget_holder();
+			.widget_instance();
 		let colinear_handles_label = TextLabel::new("Colinear Handles")
 			.disabled(!self.tool_data.can_toggle_colinearity)
-			.tooltip(colinear_handles_tooltip)
+			.tooltip_label("Colinear Handles")
+			.tooltip_description(colinear_handles_description)
 			.for_checkbox(checkbox_id)
-			.widget_holder();
+			.widget_instance();
 
 		let point_editing_mode = CheckboxInput::new(self.options.path_editing_mode.point_editing_mode)
 			// TODO(Keavon): Replace with a real icon
 			.icon("Dot")
-			.tooltip("Point Editing Mode\n\nShift + click to select both modes.")
+			.tooltip_label("Point Editing Mode")
+			.tooltip_description("To multi-select modes, perform the shortcut shown.")
+			.tooltip_shortcut(action_shortcut_manual!(Key::Shift, Key::MouseLeft))
 			.on_update(|_| PathToolMessage::TogglePointEditing.into())
-			.widget_holder();
+			.widget_instance();
 		let segment_editing_mode = CheckboxInput::new(self.options.path_editing_mode.segment_editing_mode)
 			// TODO(Keavon): Replace with a real icon
 			.icon("Remove")
-			.tooltip("Segment Editing Mode\n\nShift + click to select both modes.")
+			.tooltip_label("Segment Editing Mode")
+			.tooltip_description("To multi-select modes, perform the shortcut shown.")
+			.tooltip_shortcut(action_shortcut_manual!(Key::Shift, Key::MouseLeft))
 			.on_update(|_| PathToolMessage::ToggleSegmentEditing.into())
-			.widget_holder();
+			.widget_instance();
 
 		let path_overlay_mode_widget = RadioInput::new(vec![
 			RadioEntryData::new("all")
 				.icon("HandleVisibilityAll")
-				.tooltip("Show all handles regardless of selection")
+				.tooltip_label("Show All Handles")
+				.tooltip_description("Show all handles regardless of selection.")
 				.on_update(move |_| {
 					PathToolMessage::UpdateOptions {
 						options: PathOptionsUpdate::OverlayModeType(PathOverlayMode::AllHandles),
@@ -287,7 +295,8 @@ impl LayoutHolder for PathTool {
 				}),
 			RadioEntryData::new("selected")
 				.icon("HandleVisibilitySelected")
-				.tooltip("Show only handles of the segments connected to selected points")
+				.tooltip_label("Show Connected Handles")
+				.tooltip_description("Show only handles of the segments connected to selected points.")
 				.on_update(move |_| {
 					PathToolMessage::UpdateOptions {
 						options: PathOptionsUpdate::OverlayModeType(PathOverlayMode::SelectedPointHandles),
@@ -296,7 +305,8 @@ impl LayoutHolder for PathTool {
 				}),
 			RadioEntryData::new("frontier")
 				.icon("HandleVisibilityFrontier")
-				.tooltip("Show only handles at the frontiers of the segments connected to selected points")
+				.tooltip_label("Show Frontier Handles")
+				.tooltip_description("Show only handles at the frontiers of the segments connected to selected points.")
 				.on_update(move |_| {
 					PathToolMessage::UpdateOptions {
 						options: PathOptionsUpdate::OverlayModeType(PathOverlayMode::FrontierHandles),
@@ -305,15 +315,18 @@ impl LayoutHolder for PathTool {
 				}),
 		])
 		.selected_index(Some(self.options.path_overlay_mode as u32))
-		.widget_holder();
+		.widget_instance();
 
 		// Works only if a single layer is selected and its type is Vector
 		let path_node_button = TextButton::new("Make Path Editable")
 			.icon(Some("NodeShape".into()))
-			.tooltip("Make Path Editable")
+			.tooltip_label("Make Path Editable")
+			.tooltip_description(
+				"Enables the Pen and Path tools to directly edit layer geometry resulting from nondestructive operations. This inserts a 'Path' node as the last operation of the selected layer.",
+			)
 			.on_update(|_| NodeGraphMessage::AddPathNode.into())
 			.disabled(!self.tool_data.make_path_editable_is_allowed)
-			.widget_holder();
+			.widget_instance();
 
 		let [_checkbox, _dropdown] = {
 			let pivot_gizmo_type_widget = pivot_gizmo_type_widget(self.tool_data.pivot_gizmo.state, PivotToolSource::Path);
@@ -329,7 +342,7 @@ impl LayoutHolder for PathTool {
 
 		let _pin_pivot = pin_pivot_widget(self.tool_data.pivot_gizmo.pin_active(), false, PivotToolSource::Path);
 
-		Layout::WidgetLayout(WidgetLayout::new(vec![LayoutGroup::Row {
+		Layout(vec![LayoutGroup::Row {
 			widgets: vec![
 				x_location,
 				related_seperator.clone(),
@@ -354,7 +367,7 @@ impl LayoutHolder for PathTool {
 				// related_seperator.clone(),
 				// pin_pivot,
 			],
-		}]))
+		}])
 	}
 }
 
@@ -3576,5 +3589,5 @@ fn update_dynamic_hints(
 		]),
 		PathToolFsmState::SlidingPoint => HintData(vec![HintGroup(vec![HintInfo::mouse(MouseMotion::Rmb, ""), HintInfo::keys([Key::Escape], "Cancel").prepend_slash()])]),
 	};
-	responses.add(FrontendMessage::UpdateInputHints { hint_data });
+	hint_data.send_layout(responses);
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from "svelte";
 
-	import type { MenuListEntry } from "@graphite/messages";
+	import type { MenuListEntry, ActionShortcut } from "@graphite/messages";
 
 	import MenuList from "@graphite/components/floating-menus/MenuList.svelte";
 	import LayoutRow from "@graphite/components/layout/LayoutRow.svelte";
@@ -21,7 +21,9 @@
 	export let interactive = true;
 	export let disabled = false;
 	export let narrow = false;
-	export let tooltip: string | undefined = undefined;
+	export let tooltipLabel: string | undefined = undefined;
+	export let tooltipDescription: string | undefined = undefined;
+	export let tooltipShortcut: ActionShortcut | undefined = undefined;
 	export let minWidth = 0;
 	export let maxWidth = 0;
 
@@ -98,7 +100,9 @@
 	<LayoutRow
 		class="dropdown-box"
 		classes={{ disabled, open }}
-		{tooltip}
+		{tooltipLabel}
+		{tooltipDescription}
+		{tooltipShortcut}
 		on:click={() => !disabled && (open = true)}
 		on:blur={unFocusDropdownBox}
 		tabindex={disabled ? -1 : 0}
