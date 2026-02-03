@@ -10,29 +10,17 @@ pub(super) fn intercept_frontend_message(dispatcher: &mut DesktopWrapperMessageD
 		FrontendMessage::RenderOverlays { context } => {
 			dispatcher.respond(DesktopFrontendMessage::UpdateOverlays(context.take_scene()));
 		}
-		FrontendMessage::TriggerOpenDocument => {
+		FrontendMessage::TriggerOpen => {
 			dispatcher.respond(DesktopFrontendMessage::OpenFileDialog {
 				title: "Open Document".to_string(),
-				filters: vec![FileFilter {
-					name: "Graphite".to_string(),
-					extensions: vec!["graphite".to_string()],
-				}],
-				context: OpenFileDialogContext::Document,
+				filters: vec![],
+				context: OpenFileDialogContext::Open,
 			});
 		}
 		FrontendMessage::TriggerImport => {
 			dispatcher.respond(DesktopFrontendMessage::OpenFileDialog {
 				title: "Import File".to_string(),
-				filters: vec![
-					FileFilter {
-						name: "Svg".to_string(),
-						extensions: vec!["svg".to_string()],
-					},
-					FileFilter {
-						name: "Image".to_string(),
-						extensions: vec!["png".to_string(), "jpg".to_string(), "jpeg".to_string(), "bmp".to_string()],
-					},
-				],
+				filters: vec![],
 				context: OpenFileDialogContext::Import,
 			});
 		}
@@ -66,6 +54,10 @@ pub(super) fn intercept_frontend_message(dispatcher: &mut DesktopWrapperMessageD
 		}
 		FrontendMessage::UpdateViewportPhysicalBounds { x, y, width, height } => {
 			dispatcher.respond(DesktopFrontendMessage::UpdateViewportPhysicalBounds { x, y, width, height });
+		}
+		FrontendMessage::UpdateUIScale { scale } => {
+			dispatcher.respond(DesktopFrontendMessage::UpdateUIScale { scale });
+			return Some(FrontendMessage::UpdateUIScale { scale });
 		}
 		FrontendMessage::TriggerPersistenceWriteDocument { document_id, document, details } => {
 			dispatcher.respond(DesktopFrontendMessage::PersistenceWriteDocument {
@@ -126,6 +118,15 @@ pub(super) fn intercept_frontend_message(dispatcher: &mut DesktopWrapperMessageD
 				_ => {}
 			}
 		}
+		FrontendMessage::TriggerClipboardRead => {
+			dispatcher.respond(DesktopFrontendMessage::ClipboardRead);
+		}
+		FrontendMessage::TriggerClipboardWrite { content } => {
+			dispatcher.respond(DesktopFrontendMessage::ClipboardWrite { content });
+		}
+		FrontendMessage::WindowPointerLock => {
+			dispatcher.respond(DesktopFrontendMessage::PointerLock);
+		}
 		FrontendMessage::WindowClose => {
 			dispatcher.respond(DesktopFrontendMessage::WindowClose);
 		}
@@ -134,6 +135,9 @@ pub(super) fn intercept_frontend_message(dispatcher: &mut DesktopWrapperMessageD
 		}
 		FrontendMessage::WindowMaximize => {
 			dispatcher.respond(DesktopFrontendMessage::WindowMaximize);
+		}
+		FrontendMessage::WindowFullscreen => {
+			dispatcher.respond(DesktopFrontendMessage::WindowFullscreen);
 		}
 		FrontendMessage::WindowDrag => {
 			dispatcher.respond(DesktopFrontendMessage::WindowDrag);

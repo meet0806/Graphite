@@ -25,12 +25,15 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use vello::Scene;
 use vello::peniko;
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 pub type OverlayProvider = fn(OverlayContext) -> Message;
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 pub fn empty_provider() -> OverlayProvider {
 	|_| Message::NoOp
 }
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 /// Types of overlays used by DocumentMessage to enable/disable the selected set of viewport overlays.
 #[derive(PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 pub enum OverlaysType {
@@ -41,6 +44,7 @@ pub enum OverlaysType {
 	TransformCage,
 	HoverOutline,
 	SelectionOutline,
+	LayerOriginCross,
 	Pivot,
 	Origin,
 	Path,
@@ -48,6 +52,7 @@ pub enum OverlaysType {
 	Handles,
 }
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 #[derive(PartialEq, Copy, Clone, Debug, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(default)]
 pub struct OverlaysVisibilitySettings {
@@ -59,6 +64,7 @@ pub struct OverlaysVisibilitySettings {
 	pub transform_cage: bool,
 	pub hover_outline: bool,
 	pub selection_outline: bool,
+	pub layer_origin_cross: bool,
 	pub pivot: bool,
 	pub origin: bool,
 	pub path: bool,
@@ -66,6 +72,7 @@ pub struct OverlaysVisibilitySettings {
 	pub handles: bool,
 }
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 impl Default for OverlaysVisibilitySettings {
 	fn default() -> Self {
 		Self {
@@ -77,6 +84,7 @@ impl Default for OverlaysVisibilitySettings {
 			transform_cage: true,
 			hover_outline: true,
 			selection_outline: true,
+			layer_origin_cross: true,
 			pivot: true,
 			origin: true,
 			path: true,
@@ -86,6 +94,7 @@ impl Default for OverlaysVisibilitySettings {
 	}
 }
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 impl OverlaysVisibilitySettings {
 	pub fn all(&self) -> bool {
 		self.all
@@ -117,6 +126,10 @@ impl OverlaysVisibilitySettings {
 
 	pub fn selection_outline(&self) -> bool {
 		self.all && self.selection_outline
+	}
+
+	pub fn layer_origin_cross(&self) -> bool {
+		self.all && self.layer_origin_cross
 	}
 
 	pub fn pivot(&self) -> bool {
@@ -391,12 +404,14 @@ impl OverlayContext {
 	}
 }
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 pub enum Pivot {
 	Start,
 	Middle,
 	End,
 }
 
+// TODO Remove duplicated definition of this in `utility_types_web.rs`
 pub enum DrawHandles {
 	All,
 	SelectedAnchors(HashMap<LayerNodeIdentifier, Vec<SegmentId>>),
@@ -804,34 +819,32 @@ impl OverlayContextInternal {
 
 		let transform = self.get_transform();
 
-		// Draw the background circle with a white fill and colored outline
 		let circle = kurbo::Circle::new((x, y), DOWEL_PIN_RADIUS);
 		self.scene.fill(peniko::Fill::NonZero, transform, Self::parse_color(COLOR_OVERLAY_WHITE), None, &circle);
 		self.scene.stroke(&kurbo::Stroke::new(1.), transform, Self::parse_color(color), None, &circle);
 
-		// Draw the two filled sectors using paths
 		let mut path = BezPath::new();
 
-		// Top-left sector
+		let start1 = FRAC_PI_2 + angle;
+		let start1_x = x + DOWEL_PIN_RADIUS * start1.cos();
+		let start1_y = y + DOWEL_PIN_RADIUS * start1.sin();
 		path.move_to(kurbo::Point::new(x, y));
-		let end_x = x + DOWEL_PIN_RADIUS * (FRAC_PI_2 + angle.cos());
-		let end_y = y + DOWEL_PIN_RADIUS * (FRAC_PI_2 + angle.sin());
-		path.line_to(kurbo::Point::new(end_x, end_y));
-		// Draw arc manually
-		let arc = kurbo::Arc::new((x, y), (DOWEL_PIN_RADIUS, DOWEL_PIN_RADIUS), FRAC_PI_2 + angle, FRAC_PI_2, 0.0);
-		arc.to_cubic_beziers(0.1, |p1, p2, p| {
+		path.line_to(kurbo::Point::new(start1_x, start1_y));
+
+		let arc1 = kurbo::Arc::new((x, y), (DOWEL_PIN_RADIUS, DOWEL_PIN_RADIUS), start1, FRAC_PI_2, 0.0);
+		arc1.to_cubic_beziers(0.1, |p1, p2, p| {
 			path.curve_to(p1, p2, p);
 		});
 		path.close_path();
 
-		// Bottom-right sector
+		let start2 = PI + FRAC_PI_2 + angle;
+		let start2_x = x + DOWEL_PIN_RADIUS * start2.cos();
+		let start2_y = y + DOWEL_PIN_RADIUS * start2.sin();
 		path.move_to(kurbo::Point::new(x, y));
-		let end_x = x + DOWEL_PIN_RADIUS * (PI + FRAC_PI_2 + angle.cos());
-		let end_y = y + DOWEL_PIN_RADIUS * (PI + FRAC_PI_2 + angle.sin());
-		path.line_to(kurbo::Point::new(end_x, end_y));
-		// Draw arc manually
-		let arc = kurbo::Arc::new((x, y), (DOWEL_PIN_RADIUS, DOWEL_PIN_RADIUS), PI + FRAC_PI_2 + angle, FRAC_PI_2, 0.0);
-		arc.to_cubic_beziers(0.1, |p1, p2, p| {
+		path.line_to(kurbo::Point::new(start2_x, start2_y));
+
+		let arc2 = kurbo::Arc::new((x, y), (DOWEL_PIN_RADIUS, DOWEL_PIN_RADIUS), start2, FRAC_PI_2, 0.0);
+		arc2.to_cubic_beziers(0.1, |p1, p2, p| {
 			path.curve_to(p1, p2, p);
 		});
 		path.close_path();
