@@ -796,13 +796,13 @@ export class TriggerSaveActiveDocument extends JsMessage {
 
 export class DocumentChanged extends JsMessage {}
 
-export type DataBuffer = {
-	pointer: bigint;
-	length: bigint;
+export type LayerStructureEntry = {
+	layerId: bigint;
+	children: LayerStructureEntry[];
 };
 
-export class UpdateDocumentLayerStructureJs extends JsMessage {
-	readonly dataBuffer!: DataBuffer;
+export class UpdateDocumentLayerStructure extends JsMessage {
+	readonly layerStructure!: LayerStructureEntry[];
 }
 
 export type TextAlign = "Left" | "Center" | "Right" | "JustifyLeft";
@@ -884,7 +884,7 @@ export class LayerPanelEntry {
 	clippable!: boolean;
 }
 
-export class DisplayDialogDismiss extends JsMessage {}
+export class DialogClose extends JsMessage {}
 
 export class Font {
 	fontFamily!: string;
@@ -1671,7 +1671,7 @@ type MessageMaker = typeof JsMessage | JSMessageFactory;
 export const messageMakers: Record<string, MessageMaker> = {
 	ClearAllNodeGraphWires,
 	DisplayDialog,
-	DisplayDialogDismiss,
+	DialogClose,
 	DisplayDialogPanic,
 	DisplayEditableTextbox,
 	DisplayEditableTextboxTransform,
@@ -1717,7 +1717,7 @@ export const messageMakers: Record<string, MessageMaker> = {
 	UpdateDocumentArtwork,
 	UpdateDocumentBarLayout,
 	UpdateDocumentLayerDetails,
-	UpdateDocumentLayerStructureJs,
+	UpdateDocumentLayerStructure,
 	UpdateDocumentRulers,
 	UpdateDocumentScrollbars,
 	UpdateExportReorderIndex,

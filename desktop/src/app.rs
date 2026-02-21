@@ -15,6 +15,7 @@ use crate::cli::Cli;
 use crate::consts::CEF_MESSAGE_LOOP_MAX_ITERATIONS;
 use crate::event::{AppEvent, AppEventScheduler};
 use crate::persist::PersistentData;
+use crate::preferences;
 use crate::render::{RenderError, RenderState};
 use crate::window::Window;
 use crate::wrapper::messages::{DesktopFrontendMessage, DesktopWrapperMessage, InputMessage, MouseKeys, MouseState};
@@ -74,7 +75,7 @@ impl App {
 			loop {
 				let result = runtime.block_on(DesktopWrapper::execute_node_graph());
 				rendering_app_event_scheduler.schedule(AppEvent::NodeGraphExecutionResult(result));
-				let _ = start_render_receiver.recv();
+				let _ = start_render_receiver.recv_timeout(Duration::from_millis(10));
 			}
 		});
 
@@ -277,10 +278,10 @@ impl App {
 				self.persistent_data.set_document_order(ids);
 			}
 			DesktopFrontendMessage::PersistenceWritePreferences { preferences } => {
-				self.persistent_data.write_preferences(preferences);
+				preferences::write(preferences);
 			}
 			DesktopFrontendMessage::PersistenceLoadPreferences => {
-				let preferences = self.persistent_data.load_preferences();
+				let preferences = preferences::read();
 				let message = DesktopWrapperMessage::LoadPreferences { preferences };
 				responses.push(message);
 			}
@@ -397,6 +398,9 @@ impl App {
 				if let Some(window) = &self.window {
 					window.show_all();
 				}
+			}
+			DesktopFrontendMessage::Restart => {
+				self.exit(Some(ExitReason::Restart));
 			}
 		}
 	}
@@ -635,7 +639,7 @@ impl ApplicationHandler for App {
 		}
 	}
 
-	fn new_events(&mut self, event_loop: &dyn ActiveEventLoop, cause: winit::event::StartCause) {
+	fn new_events(&mut self, _event_loop: &dyn ActiveEventLoop, cause: winit::event::StartCause) {
 		if let StartCause::ResumeTimeReached { .. } = cause
 			&& let Some(window) = &self.window
 		{
@@ -663,5 +667,6 @@ impl ApplicationHandler for App {
 
 pub(crate) enum ExitReason {
 	Shutdown,
+	Restart,
 	UiAccelerationFailure,
 }

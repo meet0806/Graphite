@@ -154,7 +154,7 @@ impl EditorHandle {
 	}
 
 	// Sends a FrontendMessage to JavaScript
-	fn send_frontend_message_to_js(&self, mut message: FrontendMessage) {
+	fn send_frontend_message_to_js(&self, message: FrontendMessage) {
 		if let FrontendMessage::UpdateImageData { ref image_data } = message {
 			let new_hash = calculate_hash(image_data);
 			let prev_hash = IMAGE_DATA_HASH.load(Ordering::Relaxed);
@@ -164,10 +164,6 @@ impl EditorHandle {
 				IMAGE_DATA_HASH.store(new_hash, Ordering::Relaxed);
 			}
 			return;
-		}
-
-		if let FrontendMessage::UpdateDocumentLayerStructure { data_buffer } = message {
-			message = FrontendMessage::UpdateDocumentLayerStructureJs { data_buffer: data_buffer.into() };
 		}
 
 		let message_type = message.to_discriminant().local_name();
@@ -388,18 +384,14 @@ impl EditorHandle {
 
 	#[wasm_bindgen(js_name = loadPreferences)]
 	pub fn load_preferences(&self, preferences: Option<String>) {
-		let preferences = if let Some(preferences) = preferences {
+		if let Some(preferences) = preferences {
 			let Ok(preferences) = serde_json::from_str(&preferences) else {
 				log::error!("Failed to deserialize preferences");
 				return;
 			};
-			Some(preferences)
-		} else {
-			None
-		};
-
-		let message = PreferencesMessage::Load { preferences };
-		self.dispatch(message);
+			let message = PreferencesMessage::Load { preferences };
+			self.dispatch(message);
+		}
 	}
 
 	#[wasm_bindgen(js_name = selectDocument)]
@@ -604,6 +596,13 @@ impl EditorHandle {
 		self.dispatch(message);
 
 		Ok(())
+	}
+
+	/// Dialog got dismissed
+	#[wasm_bindgen(js_name = onDialogDismiss)]
+	pub fn on_dialog_dismiss(&self) {
+		let message = DialogMessage::Dismiss;
+		self.dispatch(message);
 	}
 
 	/// A text box was changed
