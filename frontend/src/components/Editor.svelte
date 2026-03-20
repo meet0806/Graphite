@@ -1,61 +1,74 @@
 <script lang="ts">
 	import { onMount, onDestroy, setContext } from "svelte";
 
-	import { type Editor } from "@graphite/editor";
-	import { createClipboardManager } from "@graphite/io-managers/clipboard";
-	import { createHyperlinkManager } from "@graphite/io-managers/hyperlink";
-	import { createInputManager } from "@graphite/io-managers/input";
-	import { createLocalizationManager } from "@graphite/io-managers/localization";
-	import { createPanicManager } from "@graphite/io-managers/panic";
-	import { createPersistenceManager } from "@graphite/io-managers/persistence";
-	import { createAppWindowState } from "@graphite/state-providers/app-window";
-	import { createDialogState } from "@graphite/state-providers/dialog";
-	import { createDocumentState } from "@graphite/state-providers/document";
-	import { createFontsManager } from "/src/io-managers/fonts";
-	import { createFullscreenState } from "@graphite/state-providers/fullscreen";
-	import { createNodeGraphState } from "@graphite/state-providers/node-graph";
-	import { createPortfolioState } from "@graphite/state-providers/portfolio";
-	import { createTooltipState } from "@graphite/state-providers/tooltip";
+	import type { Editor } from "@graphite/editor";
+	import { createClipboardManager, destroyClipboardManager } from "@graphite/managers/clipboard";
+	import { createFontsManager, destroyFontsManager } from "@graphite/managers/fonts";
+	import { createHyperlinkManager, destroyHyperlinkManager } from "@graphite/managers/hyperlink";
+	import { createInputManager, destroyInputManager } from "@graphite/managers/input";
+	import { createLocalizationManager, destroyLocalizationManager } from "@graphite/managers/localization";
+	import { createPanicManager, destroyPanicManager } from "@graphite/managers/panic";
+	import { createPersistenceManager, destroyPersistenceManager } from "@graphite/managers/persistence";
+	import { createAppWindowStore, destroyAppWindowStore } from "@graphite/stores/app-window";
+	import { createDialogStore, destroyDialogStore } from "@graphite/stores/dialog";
+	import { createDocumentStore, destroyDocumentStore } from "@graphite/stores/document";
+	import { createFullscreenStore, destroyFullscreenStore } from "@graphite/stores/fullscreen";
+	import { createNodeGraphStore, destroyNodeGraphStore } from "@graphite/stores/node-graph";
+	import { createPortfolioStore, destroyPortfolioStore } from "@graphite/stores/portfolio";
+	import { createTooltipStore, destroyTooltipStore } from "@graphite/stores/tooltip";
 
 	import MainWindow from "@graphite/components/window/MainWindow.svelte";
 
-	// Graphite WASM editor
+	// Graphite Wasm editor
 	export let editor: Editor;
 	setContext("editor", editor);
 
-	// State provider systems
-	let dialog = createDialogState(editor);
-	setContext("dialog", dialog);
-	let tooltip = createTooltipState(editor);
-	setContext("tooltip", tooltip);
-	let document = createDocumentState(editor);
-	setContext("document", document);
-	let fullscreen = createFullscreenState(editor);
-	setContext("fullscreen", fullscreen);
-	let nodeGraph = createNodeGraphState(editor);
-	setContext("nodeGraph", nodeGraph);
-	let portfolio = createPortfolioState(editor);
-	setContext("portfolio", portfolio);
-	let appWindow = createAppWindowState(editor);
-	setContext("appWindow", appWindow);
-
-	// Initialize managers, which are isolated systems that subscribe to backend messages to link them to browser API functionality (like JS events, IndexedDB, etc.)
-	createClipboardManager(editor);
-	createHyperlinkManager(editor);
-	createLocalizationManager(editor);
-	createPanicManager(editor, dialog);
-	createPersistenceManager(editor, portfolio);
-	createFontsManager(editor);
-	let inputManagerDestructor = createInputManager(editor, dialog, portfolio, document, fullscreen);
+	const stores = {
+		dialog: createDialogStore(editor),
+		tooltip: createTooltipStore(editor),
+		document: createDocumentStore(editor),
+		fullscreen: createFullscreenStore(editor),
+		nodeGraph: createNodeGraphStore(editor),
+		portfolio: createPortfolioStore(editor),
+		appWindow: createAppWindowStore(editor),
+	};
+	Object.entries(stores).forEach(([key, store]) => setContext(key, store));
 
 	onMount(() => {
-		// Initialize certain setup tasks required by the editor backend to be ready for the user now that the frontend is ready
+		createClipboardManager(editor);
+		createHyperlinkManager(editor);
+		createLocalizationManager(editor);
+		createPanicManager(editor);
+		createPersistenceManager(editor, stores.portfolio);
+		createFontsManager(editor);
+		createInputManager(editor, stores.dialog, stores.portfolio, stores.document);
+
+		// Initialize certain setup tasks required by the editor backend to be ready for the user now that the frontend is ready.
+		// The backend handles idempotency, so this is safe to call again during HMR re-mounts.
 		editor.handle.initAfterFrontendReady();
+
+		// Re-send all UI layouts from Rust so the frontend has them after an HMR re-mount
+		editor.handle.resendAllLayouts();
 	});
 
 	onDestroy(() => {
-		// Call the destructor for each manager
-		inputManagerDestructor();
+		// Stores
+		destroyDialogStore();
+		destroyTooltipStore();
+		destroyDocumentStore();
+		destroyFullscreenStore();
+		destroyNodeGraphStore();
+		destroyPortfolioStore();
+		destroyAppWindowStore();
+
+		// Managers
+		destroyClipboardManager();
+		destroyHyperlinkManager();
+		destroyLocalizationManager();
+		destroyPanicManager();
+		destroyPersistenceManager();
+		destroyFontsManager();
+		destroyInputManager();
 	});
 </script>
 

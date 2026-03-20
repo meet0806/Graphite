@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { getContext, onMount } from "svelte";
+	import { getContext, onMount, onDestroy } from "svelte";
 
+	import type { Layout } from "@graphite/../wasm/pkg/graphite_wasm";
 	import type { Editor } from "@graphite/editor";
-	import type { Layout } from "@graphite/messages";
-	import { patchLayout, UpdateStatusBarHintsLayout, UpdateStatusBarInfoLayout } from "@graphite/messages";
+	import { patchLayout } from "@graphite/utility-functions/widgets";
 
 	import LayoutRow from "@graphite/components/layout/LayoutRow.svelte";
 	import Separator from "@graphite/components/widgets/labels/Separator.svelte";
@@ -15,14 +15,19 @@
 	let statusBarInfoLayout: Layout = [];
 
 	onMount(() => {
-		editor.subscriptions.subscribeJsMessage(UpdateStatusBarHintsLayout, (data) => {
+		editor.subscriptions.subscribeLayoutUpdate("StatusBarHints", (data) => {
 			patchLayout(statusBarHintsLayout, data);
 			statusBarHintsLayout = statusBarHintsLayout;
 		});
-		editor.subscriptions.subscribeJsMessage(UpdateStatusBarInfoLayout, (data) => {
+		editor.subscriptions.subscribeLayoutUpdate("StatusBarInfo", (data) => {
 			patchLayout(statusBarInfoLayout, data);
 			statusBarInfoLayout = statusBarInfoLayout;
 		});
+	});
+
+	onDestroy(() => {
+		editor.subscriptions.unsubscribeLayoutUpdate("StatusBarHints");
+		editor.subscriptions.unsubscribeLayoutUpdate("StatusBarInfo");
 	});
 </script>
 

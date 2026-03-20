@@ -1,11 +1,7 @@
-<script lang="ts" context="module">
-	export type ScrollbarDirection = "Horizontal" | "Vertical";
-</script>
-
 <script lang="ts">
-	import { createEventDispatcher } from "svelte";
+	import { createEventDispatcher, onDestroy } from "svelte";
 
-	import { PRESS_REPEAT_DELAY_MS, PRESS_REPEAT_INTERVAL_MS, PRESS_REPEAT_INTERVAL_RAPID_MS } from "@graphite/io-managers/input";
+	import { PRESS_REPEAT_DELAY_MS, PRESS_REPEAT_INTERVAL_MS, PRESS_REPEAT_INTERVAL_RAPID_MS } from "@graphite/managers/input";
 
 	const ARROW_CLICK_DISTANCE = 0.05;
 	const ARROW_REPEAT_DISTANCE = 0.01;
@@ -21,7 +17,7 @@
 
 	const dispatch = createEventDispatcher<{ trackShift: number; thumbPosition: number; thumbDragStart: undefined; thumbDragEnd: undefined; thumbDragAbort: undefined }>();
 
-	export let direction: ScrollbarDirection = "Vertical";
+	export let direction: "Horizontal" | "Vertical" = "Vertical";
 	export let thumbPosition = 0.5;
 	export let thumbLength = 0.5;
 
@@ -190,6 +186,10 @@
 	function onKeyDown(e: KeyboardEvent) {
 		if (e.key === "Escape") abortInteraction();
 	}
+
+	onDestroy(() => {
+		removeEvents();
+	});
 
 	function addEvents() {
 		window.addEventListener("pointerup", onPointerUp);

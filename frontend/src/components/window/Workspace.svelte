@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { getContext } from "svelte";
+	import { getContext, onDestroy } from "svelte";
 
+	import type { OpenDocument } from "@graphite/../wasm/pkg/graphite_wasm";
 	import type { Editor } from "@graphite/editor";
-	import type { OpenDocument } from "@graphite/messages";
-	import type { PortfolioState } from "@graphite/state-providers/portfolio";
+	import type { PortfolioStore } from "@graphite/stores/portfolio";
 
 	import LayoutCol from "@graphite/components/layout/LayoutCol.svelte";
 	import LayoutRow from "@graphite/components/layout/LayoutRow.svelte";
@@ -18,12 +18,17 @@
 		/*   └─ */ details: 20,
 		/*         ├─ */ properties: 45,
 		/*         └─ */ layers: 55,
-	};
+	} as const;
 
-	let panelSizes = PANEL_SIZES;
+	let panelSizes: Record<string, number> = PANEL_SIZES;
 	let documentPanel: Panel | undefined;
 	let gutterResizeRestore: [number, number] | undefined = undefined;
 	let pointerCaptureId: number | undefined = undefined;
+	let activeResizeCleanup: (() => void) | undefined = undefined;
+
+	onDestroy(() => {
+		activeResizeCleanup?.();
+	});
 
 	$: documentPanel?.scrollTabIntoView($portfolio.activeDocumentIndex);
 
@@ -37,18 +42,22 @@
 	});
 
 	const editor = getContext<Editor>("editor");
-	const portfolio = getContext<PortfolioState>("portfolio");
+	const portfolio = getContext<PortfolioStore>("portfolio");
 
 	function resizePanel(e: PointerEvent) {
-		const gutter = (e.target || undefined) as HTMLDivElement | undefined;
-		const nextSibling = (gutter?.nextElementSibling || undefined) as HTMLDivElement | undefined;
-		const prevSibling = (gutter?.previousElementSibling || undefined) as HTMLDivElement | undefined;
-		const parentElement = (gutter?.parentElement || undefined) as HTMLDivElement | undefined;
+		const gutter = e.target;
+		if (!(gutter instanceof HTMLDivElement)) return;
 
-		const nextSiblingName = (nextSibling?.getAttribute("data-subdivision-name") || undefined) as keyof typeof PANEL_SIZES;
-		const prevSiblingName = (prevSibling?.getAttribute("data-subdivision-name") || undefined) as keyof typeof PANEL_SIZES;
+		const nextSibling = gutter.nextElementSibling;
+		const prevSibling = gutter.previousElementSibling;
 
-		if (!gutter || !nextSibling || !prevSibling || !parentElement || !nextSiblingName || !prevSiblingName) return;
+		const parentElement = gutter.parentElement;
+		if (!(nextSibling instanceof HTMLDivElement) || !(prevSibling instanceof HTMLDivElement) || !(parentElement instanceof HTMLDivElement)) return;
+
+		const nextSiblingName = nextSibling.getAttribute("data-subdivision-name") || undefined;
+		const prevSiblingName = prevSibling.getAttribute("data-subdivision-name") || undefined;
+
+		if (!nextSiblingName || !prevSiblingName || !(nextSiblingName in PANEL_SIZES) || !(prevSiblingName in PANEL_SIZES)) return;
 
 		// Are we resizing horizontally?
 		const isHorizontal = gutter.getAttribute("data-gutter-horizontal") !== null;
@@ -72,6 +81,7 @@
 		const abortResize = () => {
 			if (pointerCaptureId) gutter.releasePointerCapture(pointerCaptureId);
 			removeListeners();
+			activeResizeCleanup = undefined;
 
 			pointerCaptureId = e.pointerId;
 			gutter.setPointerCapture(pointerCaptureId);
@@ -100,6 +110,7 @@
 			gutterResizeRestore = undefined;
 			if (pointerCaptureId) gutter.releasePointerCapture(pointerCaptureId);
 			removeListeners();
+			activeResizeCleanup = undefined;
 		};
 
 		const onMouseDown = (e: MouseEvent) => {
@@ -126,6 +137,7 @@
 		};
 
 		addListeners();
+		activeResizeCleanup = removeListeners;
 	}
 </script>
 

@@ -1,4 +1,6 @@
 pub mod any;
+pub mod pixel_preview;
+pub mod render_cache;
 pub mod render_node;
 pub mod text;
 #[cfg(feature = "wasm")]
@@ -12,8 +14,9 @@ pub use graphene_core::debug;
 pub use graphic_nodes;
 pub use graphic_types::{Artboard, Graphic, Vector};
 pub use math_nodes;
-pub use path_bool_nodes as path_bool;
+pub use path_bool_nodes;
 pub use raster_nodes;
+pub use repeat_nodes;
 pub use text_nodes;
 pub use transform_nodes;
 pub use vector_nodes;
@@ -56,12 +59,16 @@ pub mod subpath {
 }
 
 pub mod gradient {
-	pub use vector_types::GradientStops;
+	pub use vector_types::{GradientStop, GradientStops};
 }
 
 pub mod transform {
 	pub use core_types::transform::*;
 	pub use vector_types::ReferencePoint;
+}
+
+pub mod repeat {
+	pub use repeat_nodes::repeat_nodes::*;
 }
 
 pub mod math {

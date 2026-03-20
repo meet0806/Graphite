@@ -6,16 +6,38 @@ use crate::messages::prelude::*;
 #[derive(PartialEq, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum PreferencesMessage {
 	// Management messages
-	Load { preferences: PreferencesMessageHandler },
+	Load {
+		preferences: PreferencesMessageHandler,
+	},
 	ResetToDefaults,
 
 	// Per-preference messages
-	UseVello { use_vello: bool },
-	SelectionMode { selection_mode: SelectionMode },
-	BrushTool { enabled: bool },
-	ModifyLayout { zoom_with_scroll: bool },
-	GraphWireStyle { style: GraphWireStyle },
-	ViewportZoomWheelRate { rate: f64 },
-	UIScale { scale: f64 },
-	DisableUIAcceleration { disable_ui_acceleration: bool },
+	SelectionMode {
+		selection_mode: SelectionMode,
+	},
+	BrushTool {
+		enabled: bool,
+	},
+	ModifyLayout {
+		zoom_with_scroll: bool,
+	},
+	GraphWireStyle {
+		style: GraphWireStyle,
+	},
+	ViewportZoomWheelRate {
+		rate: f64,
+	},
+	UIScale {
+		scale: f64,
+	},
+	MaxRenderRegionSize {
+		size: u32,
+	},
+	DisableUIAcceleration {
+		disable_ui_acceleration: bool,
+	},
+	#[cfg(target_os = "macos")]
+	VSync {
+		vsync: bool,
+	},
 }
